@@ -1,0 +1,13 @@
+{
+  "name": "transaction-processor",
+  "version": "1.0.0",
+  "description": "Node.js on Docker",
+  "author": "Philip Tuomey",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "mongodb": "^4.0.0"
+  }
+}
