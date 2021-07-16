@@ -1,97 +1,98 @@
-console.log("Hello World 1");
 var t1 = require('./transactions-1.json');
 var t2 = require('./transactions-2.json');
+const Transaction = require('./Transaction');
+const mongoose = require('mongoose');
+var sb = require("satoshi-bitcoin");
+mongoose.connect('mongodb://localhost:27017/local', { useNewUrlParser: true, useUnifiedTopology: true });
 
 
-
-var addressNameMap = {
-  "mvd6qFeVkqH6MNAS2Y2cLifbdaX5XUkbZJ": "Wesley Crusher",
-  "mmFFG4jqAtw9MoCC88hw5FNfreQWuEHADp": "Leonard McCoy",
-  "mzzg8fvHXydKs8j9D2a8t7KpSXpGgAnk4n": "Jonathan Archer",
-  "2N1SP7r92ZZJvYKG2oNtzPwYnzw62up7mTo": "Jadzia Dax",
-  "mutrAf4usv3HKNdpLwVD4ow2oLArL6Rez8": "Montgomery Scott",
-  "miTHhiX3iFhVnAEecLjybxvV5g8mKYTtnM": "James T. Kirk",
-  "mvcyJMiAcSXKAEsQxbW9TYZ369rsMG6rVV": "Spock",
-  "": "Unknown"
+var knownAddressMap = {
+	"mvd6qFeVkqH6MNAS2Y2cLifbdaX5XUkbZJ": "Wesley Crusher",
+	"mmFFG4jqAtw9MoCC88hw5FNfreQWuEHADp": "Leonard McCoy",
+	"mzzg8fvHXydKs8j9D2a8t7KpSXpGgAnk4n": "Jonathan Archer",
+	"2N1SP7r92ZZJvYKG2oNtzPwYnzw62up7mTo": "Jadzia Dax",
+	"mutrAf4usv3HKNdpLwVD4ow2oLArL6Rez8": "Montgomery Scott",
+	"miTHhiX3iFhVnAEecLjybxvV5g8mKYTtnM": "James T. Kirk",
+	"mvcyJMiAcSXKAEsQxbW9TYZ369rsMG6rVV": "Spock"
 };
 
+async function run() {
+	try {
+		// Transaction.deleteMany()
+		const allTransactions = [...t1.transactions, ...t2.transactions];
 
-const { MongoClient } = require("mongodb");
-//const uri ="mongodb://mongo:27017";
-const uri = "mongodb://localhost:27017";
-const client = new MongoClient(uri);
-console.log("Mongo Client Created 1")
-async function loadData() {
-  try {
-    await client.connect();
-    const database = client.db('local');
-    const transactions = database.collection('transactions');
-    transactions.drop()
-    allTransactions = [...t1.transactions, ...t2.transactions]
-    let uniqueTransactionKeys = new Set()
+		await Transaction.bulkWrite(allTransactions.map(tran => ({
+			updateOne: {
+				filter: { txid: tran.txid, vout: tran.vout },
+				update: processTransactionBeforeInsert(tran),
+				upsert: true,
+			}
+		})));
 
-    allTransactions.forEach(function (value) {
-      key = value.txid + value.vout;
-      if (!uniqueTransactionKeys.has(key)) {
-        transactions.insertOne(value)
-        uniqueTransactionKeys.add(key)
-      }
-    });
 
-    count = await transactions.count();
-    await processdData(transactions)
+		await calcualteDepositsForKnownAddresses();
+		await calcualteDepositsForUnknownAddresses();
+		await getMinxValidDeposit();
+		await getMaxValidDeposit();
 
-  }
-  catch (e) {
-    console.log(e);
-  }
-  finally {
-    client.close();
-  }
+	}
+	catch (e) {
+		console.log(e);
+	}
+	finally {
+		mongoose.connection.close();
+	}
 }
 
-loadData().catch(console.dir);
+run().catch(console.dir);
 
 
 
-async function processdData(transactions) {
-  console.log("Processign Data")
-  const transactionMap = new Map();
+async function calcualteDepositsForKnownAddresses() {
 
-  // Get all transactiosn form the db
-  const transactionsFromDB = await transactions.find().toArray();
-
-  // Buuidl a map with each address as key and an array of transactions as value
-  for (var i = 0, l = transactionsFromDB.length; i < l; i++) {
-    var address = transactionsFromDB[i].address;
-    key = (address in addressNameMap)? address:"";
-    
-    //console.log(key)
-    if (!transactionMap[key]) { transactionMap[key] = [] }
-    transactionMap[key].push(transactionsFromDB[i])
-  }
-
-
-  for (var address in addressNameMap) {
-    printTotals(transactionMap, address);
-  }
-
-  
+	for (var address in knownAddressMap) {
+		var [sum, count] = await getSumAndCountForQuery({ address: address });
+		console.log("Deposited for " + knownAddressMap[address] + ": count=" + count + " sum=" + sum);
+	}
 }
 
+async function calcualteDepositsForUnknownAddresses() {
+	var [sum, count] = await getSumAndCountForQuery({ unknownTransaction: true });
+	console.log("Deposited without reference: count=" + count + " sum=" + sum);
+}
 
-function printTotals(transactionMap, address) {
-  count = 0;
-  sum = 0;
+async function getMaxValidDeposit() {
+	const transaction = await Transaction.findOne({ category: { $in: ['receive'] } }).sort('-amount');
+	console.log('Largest valid deposit: ' + sb.toBitcoin(transaction.amount).toFixed(8));
+}
 
-  transactionMap[address].forEach(function (t, index) {
-    // For blovk rewards manfrimation is 144 (1 day) source en.bitcoin.it
-    if ((t.category === "receive" && t.confirmations > 6) || (t.category === "generate" && t.confirmations > 144)) {
-      count += 1;
-      sum += t.amount;
-    }
-  });
-  console.log("Deposited for " + addressNameMap[address] + ": count=" + count + " sum=" + sum);
+async function getMinxValidDeposit() {
+	const transaction = await Transaction.findOne({ category: { $in: ['receive'] } }).sort('amount');
+	console.log('Smallest valid deposit: ' + sb.toBitcoin(transaction.amount).toFixed(8));
+}
+
+async function getSumAndCountForQuery(query) {
+
+	const transactions = await Transaction.find(query).exec();
+
+	var count = 0
+	var sum = 0;
+
+	transactions.forEach(function (t) {
+		// For block rewards miniumum is 144 (1 day) source en.bitcoin.it
+		if ((t.category === "receive" && t.confirmations >= 6) || (t.category === "generate" && t.confirmations > 144)) {
+			count += 1;
+			sum += t.amount;
+		}
+	});
+	return [sb.toBitcoin(sum).toFixed(8), count];
+}
+
+// Here we add a flag if the tranaaction is known and covert btc to satoshi
+function processTransactionBeforeInsert(transaction) {
+	transaction.unknownTransaction = transaction.address in knownAddressMap ? false : true;
+	transaction.amount = sb.toSatoshi(transaction.amount);
+	return transaction;
 }
 
 

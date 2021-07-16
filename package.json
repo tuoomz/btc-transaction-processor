@@ -8,6 +8,9 @@
     "start": "node app.js"
   },
   "dependencies": {
-    "mongodb": "^4.0.0"
+    "generate-schema": "^2.6.0",
+    "mongodb": "^4.0.0",
+    "mongoose": "^5.13.2",
+    "satoshi-bitcoin": "^1.0.5"
   }
 }
