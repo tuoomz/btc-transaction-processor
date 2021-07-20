@@ -1,10 +1,5 @@
-# Kraken Crypto/Payments Hiring Test
-
-At Kraken, we receive thousands of deposits from customers per day. This test is designed to test your ability to work with a transaction set that could get returned by a blockchain daemon like bitcoind.
-
-The data we work with in this scenario comes from bitcoind’s rpc call `listsinceblock`. A frequently used approach to detect incoming deposits is to periodically call `listsinceblock` and process the returned data. This test contains 2 json files that represent the data from 2 separate calls to this endpoint. Your task is to write code that processes those files and detects all valid incoming deposits.
-
-These instructions do not specify every single detail you should take into consideration. This is done on purpose to test your ability to analyze a problem and come up with a reasonable and safe approach. Keep in mind that your code will determine how much money each customer will get. Thoroughness is one of the most important qualities for this role.
+# Bitcoin transaction processor
+The data we work with in this scenario comes from bitcoind’s rpc call `listsinceblock`. A frequently used approach to detect incoming deposits is to periodically call `listsinceblock` and process the returned data. This app contains 2 json files that represent the data from 2 separate calls to this endpoint. The script processes those files and detects all valid incoming deposits.
 
 **Goal**: Process transactions and filter them for valid deposits.
 
@@ -23,9 +18,6 @@ Known customer addresses are:
 
 Build a dockerized Node.js application to process the two transaction sets. 
 
-If you're not comfortable with Node.js, feel free to use the language of your choice.
-
-The command `docker-compose up` **MUST**:
 
 1. Read all transactions from `transactions-1.json` and `transactions-2.json` and store all deposits in a database of your choice.
 2. Read deposits from the database that are good to credit to users and print the following 8 lines on stdout:
@@ -43,12 +35,25 @@ The command `docker-compose up` **MUST**:
     Largest valid deposit: x.xxxxxxxx
     ```
 
-    The numbers in lines 1 - 7 **MUST** contain the count of valid deposits and their sum for the respective customer.
-    
-    The numbers in line 8 **MUST** be the count and the sum of the valid deposits to addresses that are not associated with a known customer.
 
-    **Note**: We'll match for these 10 lines with regular expressions. Please stick to this exact template, otherwise it won't be detected.
 
-## Submitting your results
+## Assumptions
+* Deposits of zero are valid
+* A generate transaction with over 144 confirmation (1 day) is a valid deposit
 
-Compress your source code as zip archive and send us a link where we can download it. Sharing via Dropbox or Google Drive has worked well in the past. Make sure the Dockerfile is on the top level.
+## Design Decisions
+* I used node.js and mongo with a mongoose data model
+* Before storing the transaction in the database, I added a flag to differentiate known and unknown transactions. This will make subsequent queries easier but will have some overhead if you need to change the flag for an account afterwards.
+* To avoid floating point errors I stored btc amounts in a database as Satoshi.
+
+
+## Expected output
+Deposited for Wesley Crusher: count=35 sum=217.00000000
+Deposited for Leonard McCoy: count=15 sum=64.00000000
+Deposited for Jonathan Archer: count=18 sum=99.69000000
+Deposited for Montgomery Scott: count=0 sum=0.00000000
+Deposited for James T. Kirk: count=28 sum=1267.00848015
+Deposited for Spock: count=15 sum=713.88081478
+Deposited without reference: count=58 sum=1121.57171583
+Smallest valid deposit: 0.00000000
+Largest valid deposit: 99.49379661
